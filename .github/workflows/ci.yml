@@ -1,0 +1,13 @@
+name: CI
+# Thin caller — all CI logic lives in the per-owner private host repo's reusable
+# workflow (tobyrosen/fleet-ci). Version-pinned to @v1 so a central change can't
+# touch this repo until the tag is moved. This file is this repo's LAST CI commit.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  ci:
+    uses: tobyrosen/fleet-ci/.github/workflows/ci.yml@v1
