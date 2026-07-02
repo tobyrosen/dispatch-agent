@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   release:
-    uses: tobyrosen/fleet-ci/.github/workflows/release.yml@v1
+    uses: tobyrosen/oss-workflows/.github/workflows/release.yml@v1
     with:
       profile: standalone-software
       config-file: release-please-config.json

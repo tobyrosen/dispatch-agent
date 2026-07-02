@@ -10,4 +10,4 @@ on:
 
 jobs:
   ci:
-    uses: tobyrosen/fleet-ci/.github/workflows/ci.yml@v1
+    uses: tobyrosen/oss-workflows/.github/workflows/ci.yml@v1
