@@ -1,0 +1,8 @@
+* @tobyrosen
+
+.github/workflows/release.yml @tobyrosen
+release-please-config.json @tobyrosen
+.release-please-manifest.json @tobyrosen
+CHANGELOG.md @tobyrosen
+AGENTS.md @tobyrosen
+docs/decisions/ @tobyrosen
