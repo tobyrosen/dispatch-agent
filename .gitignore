@@ -1,5 +1,25 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+node_modules/
+dist/
+build/
+.astro/
+.next/
+
+.cache/
+tmp/
+*.log
+
+# Repo-specific (preserved from original .gitignore)
 .venv/
 venv/
-.DS_Store

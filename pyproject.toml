@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dispatch-agent"
+version = "0.1.0"
+description = "Python CLI toolkit and Claude skill contract for dispatching scoped work to non-Claude models."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Toby Rosen" }
+]
+dependencies = []
+keywords = ["claude", "dispatch", "delegation", "cli", "agents", "openai-compatible"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8"
+]
+
+[project.urls]
+Homepage = "https://github.com/tobyrosen/dispatch-agent"
+Issues = "https://github.com/tobyrosen/dispatch-agent/issues"
+Releases = "https://github.com/tobyrosen/dispatch-agent/releases"
+
+[project.scripts]
+dispatch-agent = "dispatch:main"
+dispatch-agent-web = "dispatch_web:main"
+
+[tool.setuptools]
+py-modules = ["dispatch", "dispatch_web"]

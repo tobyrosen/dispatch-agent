@@ -1,6 +1,17 @@
 # Dispatch
 
+[![Release](https://img.shields.io/github/v/release/tobyrosen/dispatch-agent?sort=semver&display_name=tag&label=release&style=flat-square)](https://github.com/tobyrosen/dispatch-agent/releases/latest) [![CI](https://img.shields.io/github/actions/workflow/status/tobyrosen/dispatch-agent/ci.yml?branch=main&label=fleet-ci&style=flat-square)](https://github.com/tobyrosen/dispatch-agent/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/tobyrosen/dispatch-agent?label=license&style=flat-square)](LICENSE) [![Type](https://img.shields.io/badge/type-standalone--software-3776ab?style=flat-square)](#) [![Language](https://img.shields.io/github/languages/top/tobyrosen/dispatch-agent?style=flat-square)](https://github.com/tobyrosen/dispatch-agent)
+
 A Claude Code skill for handing scoped tasks to non-Claude models and getting usable results back. Covers model selection by task type, spec discipline, stateless dispatch, agentic web-research dispatch, concurrency, and escalation.
+
+## Identity
+
+| Field | Value |
+|---|---|
+| What | Two Python CLIs, `dispatch.py` and `dispatch_web.py`, plus `SKILL.md` guidance for Claude teams that dispatch bounded tasks to non-Claude models. |
+| For | Claude Code team leaders and maintainers who need self-contained delegation specs, model-tier matching, raw-output review, and optional live web research. |
+| Type | standalone-software |
+| Status | experimental |
 
 ## The Problem It Solves
 
@@ -76,3 +87,29 @@ The dispatch tool returns raw model output. Code is gated where it **lands** —
 ## Concurrency
 
 Each invocation is independent. Fire as many dispatches as the work genuinely needs — there is no shared queue or lock.
+
+## Project Notes
+
+Maintainer and agent context lives in [AGENTS.md](AGENTS.md).
+
+Design decisions are recorded in [docs/decisions](docs/decisions).
+
+The Claude skill behavior contract lives in [SKILL.md](SKILL.md).
+
+## Versioning and Releases
+
+This repo uses Semantic Versioning, Conventional Commits, and release-please Release PRs.
+
+The latest released version is shown in the release badge at the top of this README. The badge updates automatically from GitHub Releases after a Release PR is approved and merged.
+
+Release tags use the format `vX.Y.Z`.
+
+## Contributing
+
+Use Conventional Commits for commit messages and PR titles.
+
+Do not create release tags manually. Do not edit `CHANGELOG.md` manually for ordinary releases.
+
+## License
+
+This project is licensed under the terms in [LICENSE](LICENSE).
