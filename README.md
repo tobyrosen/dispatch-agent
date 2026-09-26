@@ -74,12 +74,11 @@ Also read `out/slugify.py` and `out/test_slugify.py`; passing tests do not prove
 
 ### Codex CLI
 
-Install the [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli) if needed. With Node.js/npm installed, run `npm install -g @openai/codex`. The public ID `gpt-6-sol` is an example; use `codex`, then `/model`, to choose a model available to your account before the live run. The dry-run works before login. Sign in before the live command; on a headless machine, use `codex login --device-auth` instead of `codex login`.
+Install the [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli) if needed. With Node.js/npm installed, run `npm install -g @openai/codex`. The public ID `gpt-6-sol` is an example; use `codex`, then `/model`, to choose a model available to your account before the live run. The dry-run works before login. Sign in before the live command. The first line below signs in only when you aren't already signed in, because `codex login` replaces an existing login; on a headless machine, use `codex login --device-auth` instead of `codex login`.
 
 ```sh
 .venv/bin/python dispatch.py --backend codex --model gpt-6-sol --spec task.md --cwd "$PWD" --write --dry-run
-codex login
-codex login status
+codex login status || codex login
 .venv/bin/python dispatch.py --backend codex --model gpt-6-sol --spec task.md --cwd "$PWD" --write
 .venv/bin/python check_out.py
 ```
@@ -92,7 +91,7 @@ Install the [Cursor CLI](https://docs.cursor.com/en/cli/installation) with `curl
 
 ```sh
 .venv/bin/python dispatch.py --backend cursor --model YOUR_CURSOR_BASE --spec task.md --cwd "$PWD" --write --dry-run
-agent login
+agent status || agent login
 agent models
 .venv/bin/python dispatch.py --backend cursor --model YOUR_CURSOR_BASE --spec task.md --cwd "$PWD" --write
 .venv/bin/python check_out.py
