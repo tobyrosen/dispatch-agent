@@ -45,7 +45,7 @@ EOF
 mkdir -p out
 ```
 
-Each backend needs its own CLI login or API key and a model available to your account. A quick preflight is `command -v codex` or `command -v agent` for CLI lanes, `ollama list` for local models, and a live request for HTTP lanes. `--dry-run` prints a plan without launching a worker or contacting a provider. It does **not** check the executable, login, key, endpoint, model availability, or whether the task will succeed. Under the planned security update, the plan shows a prompt byte count and SHA-256 hash, never the prompt text. Current plans show the resolved model and working directory; Cursor also shows its launch arguments. HTTP plans may omit the final endpoint and key-variable name, so check the flags and config you supplied before a live call.
+Each backend needs its own CLI login or API key and a model available to your account. `--dry-run` prints a plan without launching a worker or contacting a provider. Its preflight checks whether a required executable is on `PATH` and whether a required key environment variable is set; it does not test login, endpoint reachability, model access, or task success. The plan shows only the prompt byte count and SHA-256 hash. For HTTP backends, preflight shows only the endpoint origin (`scheme://host[:port]`), never its path, query, or userinfo.
 
 ## Write-mode examples
 
@@ -153,9 +153,9 @@ Copy `config.example.toml` as shown in Step 0. Define aliases under `[models.<al
 | `--backend`, `--model-id` | Backend and provider model ID when an alias does not supply them. |
 | `--base-url`, `--api-key-env` | HTTP API root and **name** of the key environment variable. |
 | `--cwd` | Working directory for CLI workers and the Ollama/OpenRouter write handoff. |
-| `--dry-run` | Show selected model, working directory, and prompt hash without launching. HTTP endpoint/key details may be omitted; it is not a connection check. |
+| `--dry-run` | Show the selected model, working directory, prompt byte count and hash, and local preflight checks without launching. HTTP endpoints appear as origins only. |
 | `--write` | Enable editing on supported backends; rejected for generic OpenAI-compatible HTTP. |
-| `--unsafe-shell` | Enable the file-tool loop's `run_command` shell explicitly, with a warning. Off by default; config alternative: `[general].allow_shell_tool = true`. |
+| `--unsafe-shell` | Enable the unconfined `run_command` shell in an HTTP write loop. It prints a warning. For untrusted tasks, run Dispatch inside a container or VM. |
 | `--pass-env NAME` | Pass an additional named environment variable to a CLI child; repeat as needed. |
 | `--timeout`, `--idle-timeout` | Per-call timeout and Cursor idle timeout, in seconds. |
 | `--max-iters` | Ollama/OpenRouter write-loop iteration limit. |
@@ -172,8 +172,12 @@ A `## Grants` block declares `paths-write`, `network`, `github-writes`, and `too
 
 ## What is and isn't sandboxed
 
-Codex and Cursor use their own sandbox options. Their actual isolation depends on those CLIs and the permissions you grant. `--web` enables Codex search; `--network` requests network access inside Codex's execution sandbox.
+Codex and Cursor use their own sandbox options. Their actual isolation depends on those CLIs and the permissions you grant. They keep your real `HOME` because their login and settings live there. `--web` enables Codex search; `--network` requests network access inside Codex's execution sandbox.
 
-Ollama/OpenRouter file tools limit file operations to the declared `--write-dir` roots and reject symlink traversal under the planned security update. The `run_command` shell tool is off unless you explicitly pass `--unsafe-shell` or set `[general].allow_shell_tool = true`; enabling it prints a warning. A shell started there is **not** confined by `--write-dir`. Use an OS sandbox or disposable workspace for shell-capable tasks.
+Public HTTP child processes receive a small environment allowlist and an isolated, temporary `HOME` by default. Use `--pass-env NAME` only for variables the child needs. Ollama and OpenRouter file tools restrict their file operations to declared `--write-dir` roots and reject symlink traversal. The `## Grants` block is advisory validation, not an operating-system sandbox.
 
-CLI children receive an allowlist of basic process variables and backend authentication variables. Use `--pass-env NAME` only for extra variables the child needs. HTTP endpoints must use HTTPS, except loopback HTTP for local services; redirects across origins are rejected. Hosted web tools may have their own network reach, beyond local file-tool restrictions. `--dry-run` makes no backend request and shows a prompt hash rather than task text. Never treat it as proof of credentials, model access, or task completion.
+`run_command` is off by default. If you enable it with `--unsafe-shell` or `[general].allow_shell_tool = true`, it runs an **unconfined shell**. `--write-dir` only sets its working directory; the shell can access other files and networks allowed to your account. Run untrusted tasks inside a container or VM.
+
+Built-in HTTP requests allow HTTPS or numeric loopback HTTP, reject URL userinfo, disable redirects, and cap response bodies. The Ollama SDK host receives the same URL validation before client creation, but the SDK handles its own redirects and response reads. The hosted Ollama `web_fetch` tool validates the initial URL and DNS answers before passing the URL to the service. That service resolves DNS and follows redirects on its side, outside this tool's control.
+
+`--dry-run` makes no backend request. Preflight shows only an endpoint's origin and whether a required key variable is set, never a key value. A dry-run cannot prove credentials, model access, or task completion.
