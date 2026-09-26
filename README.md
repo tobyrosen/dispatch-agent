@@ -45,42 +45,57 @@ EOF
 mkdir -p out
 ```
 
-Each backend needs its own CLI login or API key and a model available to your account. `--dry-run` prints a plan without launching a worker or contacting a provider. Its preflight checks whether a required executable is on `PATH` and whether a required key environment variable is set; it does not test login, endpoint reachability, model access, or task success. The plan shows only the prompt byte count and SHA-256 hash. For HTTP backends, preflight shows only the endpoint origin (`scheme://host[:port]`), never its path, query, or userinfo.
+Each backend needs its own CLI login or API key and a model available to your account. `--dry-run` prints a plan without launching a worker or contacting a provider. Its preflight checks whether a required executable is on `PATH` and whether a required key environment variable is set; it does not test login, endpoint reachability, model access, or task success. Use `--no-preflight` with `--dry-run` to skip those prerequisite checks and still print the plan. The plan shows only the prompt byte count and SHA-256 hash. For HTTP backends, preflight shows only the endpoint origin (`scheme://host[:port]`), never its path, query, or userinfo.
 
 ## Write-mode examples
 
-Run one backend example. For each, inspect the dry-run plan, then run the write command. Check the result with:
+Run one backend example. Inspect its dry-run plan, then run its write command. Create this checker once in the repo root; every write example below calls it. It exits with a failure if either expected file is missing, fewer than three tests are discovered, or a test fails.
 
 ```sh
-.venv/bin/python -m unittest discover -s out -p 'test_*.py' -v
+cat > check_out.py <<'PY'
+from pathlib import Path
+import sys
+import unittest
+
+root = Path("out")
+if not (root / "slugify.py").is_file() or not (root / "test_slugify.py").is_file():
+    print("Missing out/slugify.py or out/test_slugify.py", file=sys.stderr)
+    raise SystemExit(1)
+suite = unittest.defaultTestLoader.discover("out", pattern="test_*.py")
+if suite.countTestCases() < 3:
+    print("Expected at least three discovered tests", file=sys.stderr)
+    raise SystemExit(1)
+result = unittest.TextTestRunner(verbosity=2).run(suite)
+raise SystemExit(0 if result.wasSuccessful() else 1)
+PY
 ```
 
-Also read `out/slugify.py` and `out/test_slugify.py`; the test command can pass without confirming that the model followed every instruction.
+Also read `out/slugify.py` and `out/test_slugify.py`; passing tests do not prove the model followed every instruction.
 
 ### Codex CLI
 
-Install the [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli) if needed, then sign in with `codex login` and check with `codex login status`. With Node.js/npm installed, the install command is `npm install -g @openai/codex`. Run `codex`, type `/model`, and choose an available model; use its ID below. The public ID `gpt-6-sol` is an example, but availability depends on your account.
+Install the [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli) if needed. With Node.js/npm installed, run `npm install -g @openai/codex`. The public ID `gpt-6-sol` is an example; use `codex`, then `/model`, to choose a model available to your account before the live run. The dry-run works before login. Sign in before the live command; on a headless machine, use `codex login --device-auth` instead of `codex login`.
 
 ```sh
+.venv/bin/python dispatch.py --backend codex --model gpt-6-sol --spec task.md --cwd "$PWD" --write --dry-run
 codex login
 codex login status
-.venv/bin/python dispatch.py --backend codex --model gpt-6-sol --spec task.md --cwd "$PWD" --write --dry-run
 .venv/bin/python dispatch.py --backend codex --model gpt-6-sol --spec task.md --cwd "$PWD" --write
-.venv/bin/python -m unittest discover -s out -p 'test_*.py' -v
+.venv/bin/python check_out.py
 ```
 
 `--web` enables Codex search. `--network` requires `--write` and requests network access in Codex's execution sandbox. This task declares `network: no`, so leave both off.
 
 ### Cursor CLI
 
-Install the [Cursor CLI](https://docs.cursor.com/en/cli/installation) with `curl https://cursor.com/install -fsS | bash`, make sure `agent` is on `PATH`, run `agent login`, and list models with `agent models`. Choose a model base that supports an effort suffix in Dispatch; Dispatch appends `-high` by default. Replace `YOUR_CURSOR_BASE` with that base.
+Install the [Cursor CLI](https://docs.cursor.com/en/cli/installation) with `curl https://cursor.com/install -fsS | bash` and make sure `agent` is on `PATH`. `YOUR_CURSOR_BASE` can be a placeholder for the offline dry-run; after login, use `agent models` to choose an available model base that supports an effort suffix. Dispatch appends `-high` by default. Replace the placeholder before the live run.
 
 ```sh
+.venv/bin/python dispatch.py --backend cursor --model YOUR_CURSOR_BASE --spec task.md --cwd "$PWD" --write --dry-run
 agent login
 agent models
-.venv/bin/python dispatch.py --backend cursor --model YOUR_CURSOR_BASE --spec task.md --cwd "$PWD" --write --dry-run
 .venv/bin/python dispatch.py --backend cursor --model YOUR_CURSOR_BASE --spec task.md --cwd "$PWD" --write
-.venv/bin/python -m unittest discover -s out -p 'test_*.py' -v
+.venv/bin/python check_out.py
 ```
 
 If the listed model does not have a compatible effort variant, choose one that does or configure its supported efforts in `config.toml`. `--effort low|medium|high|xhigh` overrides the default where supported.
@@ -94,7 +109,7 @@ ollama pull qwen3:4b
 ollama list
 .venv/bin/python dispatch.py --backend ollama --model qwen3:4b --spec task.md --cwd "$PWD" --write --dry-run
 .venv/bin/python dispatch.py --backend ollama --model qwen3:4b --spec task.md --cwd "$PWD" --write
-.venv/bin/python -m unittest discover -s out -p 'test_*.py' -v
+.venv/bin/python check_out.py
 ```
 
 The default endpoint is `http://127.0.0.1:11434`; no API key is needed there. For a server deliberately listening on port 11435, pass `--base-url http://127.0.0.1:11435` to both Dispatch commands. The port must match the server. Ollama and OpenRouter write mode use the `dispatch_web.py` tool loop and need a model that reliably calls tools.
@@ -107,7 +122,7 @@ Create an Ollama API key, set the default `OLLAMA_API_KEY` environment variable,
 export OLLAMA_API_KEY='paste-your-key-here'
 .venv/bin/python dispatch.py --backend ollama-cloud --model qwen3-coder:480b-cloud --spec task.md --cwd "$PWD" --write --dry-run
 .venv/bin/python dispatch.py --backend ollama-cloud --model qwen3-coder:480b-cloud --spec task.md --cwd "$PWD" --write
-.venv/bin/python -m unittest discover -s out -p 'test_*.py' -v
+.venv/bin/python check_out.py
 ```
 
 If your key is in another variable, add `--api-key-env YOUR_VARIABLE` to both commands. `dispatch_web.py` can also run Ollama's hosted search and fetch tools with a tool-capable model.
@@ -120,7 +135,7 @@ Create an OpenRouter API key. The model below is listed by OpenRouter with tool 
 export OPENROUTER_API_KEY='paste-your-key-here'
 .venv/bin/python dispatch.py --backend openrouter --model openai/gpt-5.6-luna --spec task.md --cwd "$PWD" --write --dry-run
 .venv/bin/python dispatch.py --backend openrouter --model openai/gpt-5.6-luna --spec task.md --cwd "$PWD" --write
-.venv/bin/python -m unittest discover -s out -p 'test_*.py' -v
+.venv/bin/python check_out.py
 ```
 
 For a `:free` slug, Dispatch also refuses a response that reports nonzero cost. Check current slugs in OpenRouter's model catalog.
@@ -135,6 +150,12 @@ cat > compatible-task.md <<'EOF'
 Return only Python source code for a slugify(title) function that lowercases
 ASCII words, replaces runs of spaces or punctuation with one hyphen, and
 strips edge hyphens. No Markdown fences or explanation.
+
+## Grants
+paths-write: none
+network: no
+github-writes: no
+tools: none
 EOF
 .venv/bin/python dispatch.py --backend openai-compatible --model YOUR_MODEL --base-url https://YOUR_HOST/v1 --api-key-env MY_API_KEY --spec compatible-task.md --dry-run
 .venv/bin/python dispatch.py --backend openai-compatible --model YOUR_MODEL --base-url https://YOUR_HOST/v1 --api-key-env MY_API_KEY --spec compatible-task.md > out/slugify.py
@@ -154,6 +175,7 @@ Copy `config.example.toml` as shown in Step 0. Define aliases under `[models.<al
 | `--base-url`, `--api-key-env` | HTTP API root and **name** of the key environment variable. |
 | `--cwd` | Working directory for CLI workers and the Ollama/OpenRouter write handoff. |
 | `--dry-run` | Show the selected model, working directory, prompt byte count and hash, and local preflight checks without launching. HTTP endpoints appear as origins only. |
+| `--no-preflight` | With `--dry-run`, skip local executable and key-variable checks while still printing the plan. |
 | `--write` | Enable editing on supported backends; rejected for generic OpenAI-compatible HTTP. |
 | `--unsafe-shell` | Enable the unconfined `run_command` shell in an HTTP write loop. It prints a warning. For untrusted tasks, run Dispatch inside a container or VM. |
 | `--pass-env NAME` | Pass an additional named environment variable to a CLI child; repeat as needed. |
@@ -162,9 +184,8 @@ Copy `config.example.toml` as shown in Step 0. Define aliases under `[models.<al
 | `--effort` | Backend reasoning-effort override where supported. |
 | `--fast`, `--directive` | Fast mode for Codex/Cursor requires `--directive` audit text. `--directive` alone is optional except for configured directed models. |
 | `--web`, `--network` | Codex search and Codex execution-sandbox network access; `--network` requires `--write`. |
-| `--images` | JPEG, PNG, or WebP input for a configured vision-capable Ollama model. |
-| `--ignore-cooldown`, `--ignore-lane-state` | Bypass an active local cooldown or optional lane-state marker. |
-| `--task-class` | Routing hint when a lane-state provider is installed. |
+| `--images` | JPEG, PNG, or WebP input for a configured vision-capable Ollama model; install Pillow first with `.venv/bin/python -m pip install Pillow`. |
+| `--ignore-cooldown` | Bypass an active local cooldown marker. |
 
 `--no-fast` is a compatibility no-op. `--reasoning` applies only to configured backends that use it. `dispatch_web.py` also accepts `--write-dir` (repeatable), `--no-trace`, and the model, backend, endpoint, key-variable, timeout, and iteration options; the shell flag applies to its file-tool loop.
 
@@ -173,6 +194,8 @@ A `## Grants` block declares `paths-write`, `network`, `github-writes`, and `too
 ## What is and isn't sandboxed
 
 Codex and Cursor use their own sandbox options. Their actual isolation depends on those CLIs and the permissions you grant. They keep your real `HOME` because their login and settings live there. `--web` enables Codex search; `--network` requests network access inside Codex's execution sandbox.
+
+If Codex reports `sandbox_apply: Operation not permitted`, rerun it from a writable environment without a nested sandbox.
 
 Public HTTP child processes receive a small environment allowlist and an isolated, temporary `HOME` by default. Use `--pass-env NAME` only for variables the child needs. Ollama and OpenRouter file tools restrict their file operations to declared `--write-dir` roots and reject symlink traversal. The `## Grants` block is advisory validation, not an operating-system sandbox.
 
