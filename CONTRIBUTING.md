@@ -25,6 +25,6 @@ Before requesting review:
 
 This repo uses release-please Release PRs.
 
-Do not create release tags manually. Do not publish release artifacts manually unless Toby explicitly approves an exception.
+Do not create release tags manually. Do not publish release artifacts manually unless the maintainer explicitly approves an exception.
 
 Merging a Release PR is the owner approval to create the GitHub Release. Release PRs must not be auto-merged.

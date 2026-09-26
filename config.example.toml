@@ -1,0 +1,45 @@
+# Copy to ~/.config/dispatch-agent/config.toml. Set keys in your environment.
+
+[general]
+# Optional local cooldown after provider rate-limit failures (seconds).
+cooldown_seconds = 300
+# Enabling this runs an unconfined shell in HTTP write loops.
+allow_shell_tool = false
+# cooldown_file = "~/.local/state/dispatch-agent/cooldowns.json"
+
+[providers.ollama-cloud]
+base_url = "https://ollama.com"
+api_key_env = "OLLAMA_API_KEY"
+
+[providers.openrouter]
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+
+[models.coding]
+backend = "codex"
+model = "YOUR_CODEX_MODEL"
+
+[models.cursor-code]
+backend = "cursor"
+model = "YOUR_CURSOR_BASE"
+default_effort = "high"
+efforts = ["low", "medium", "high", "xhigh"]
+
+[models.local]
+backend = "ollama"
+model = "YOUR_LOCAL_MODEL"
+# vision = true
+
+[models.cloud]
+backend = "ollama-cloud"
+model = "YOUR_CLOUD_MODEL"
+
+[models.router]
+backend = "openrouter"
+model = "provider/model:free"
+
+[models.compatible]
+backend = "openai-compatible"
+model = "provider/model"
+base_url = "https://api.example.com/v1"
+api_key_env = "MY_API_KEY"

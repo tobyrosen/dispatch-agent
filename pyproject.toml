@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dispatch-agent"
 version = "0.1.0"
-description = "Python CLI toolkit and Claude skill contract for dispatching scoped work to non-Claude models."
+description = "Hand a scoped task to Codex, Cursor, Ollama, OpenRouter, or any OpenAI-compatible model from one CLI."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [
   { name = "Toby Rosen" }
@@ -25,6 +25,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+web = [
+  "ollama>=0.4"
+]
 dev = [
   "pytest>=8"
 ]

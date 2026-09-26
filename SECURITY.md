@@ -19,4 +19,4 @@ Include:
 - Expected impact.
 - Any known workaround.
 
-Toby or the repo owner will confirm receipt and coordinate the fix and release.
+The maintainer will confirm receipt and coordinate the fix and release.
