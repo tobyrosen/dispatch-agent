@@ -1,5 +1,19 @@
 # Contributing
 
+## Local checks
+
+Use Python 3.11 or newer and a virtual environment:
+
+```sh
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev,web]'
+.venv/bin/python -m pytest -q -p no:cacheprovider tests/
+.venv/bin/python dispatch.py --help
+.venv/bin/python dispatch_web.py --help
+```
+
+Install the Codex CLI and put `codex` on `PATH` for the dry-run redaction regression; it checks executable presence without launching it. The tests use mocks and local loopback servers; they do not need provider credentials or login. Use the README's `--dry-run` path to check examples without launching a worker. Add `--no-preflight` if backend executables or key variables are unavailable.
+
 ## Commits
 
 Use Conventional Commits:

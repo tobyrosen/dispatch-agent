@@ -1,112 +1,90 @@
 ---
 name: dispatch
-description: Use when a Claude team leader (or a teammate) decides a scoped task should run on a non-Claude model. Covers model-matching by task type, spec discipline, a stateless dispatch tool, a web-browsing dispatch mode (agentic web research — search + fetch + verify live links), concurrency, and escalation.
+description: Use when handing a scoped task to Codex, Cursor, Ollama, OpenRouter, or an OpenAI-compatible model through Dispatch Agent. Covers model selection, self-contained specs, grants, dry-run plans, file editing, web research, and result verification.
 ---
 
 # Dispatch
 
-The craft layer for handing a scoped task to a non-Claude model and getting a result back. Pick the right model tier for the task type, write a tight spec, run the dispatch tool, and escalate taste/client-facing/irreversible calls to the project owner before anything ships.
-
-## Lanes
-
-- **Lane 1 — Claude work:** spawn Agent Teams teammates (Claude Sonnet / Opus / Haiku). Do NOT use this skill for Claude-to-Claude dispatch.
-- **Lane 2 — non-Claude work:** your dispatch script (see Setup below).
+Hand one self-contained task to a suitable model, inspect its result, and verify the output before integration. Use the primary agent for decisions that require project context or owner judgment.
 
 ## Setup
 
-1. Copy `SKILL.md` to `~/.claude/skills/dispatch/SKILL.md`.
-2. Place `dispatch.py` (and optionally `dispatch_web.py`) in a stable directory on your PATH or reference by full path.
-3. Open `dispatch.py` and register your models in `HTTP_MODELS` (or `CLI_MODELS` for a CLI-based coding tool). The keys are what you pass to `--model`; the values are the provider's model IDs.
-4. Set two environment variables in your shell profile or agent config:
-   - `DISPATCH_BASE_URL` — your provider's OpenAI-compatible base URL (e.g. `https://api.openai.com/v1`, a local Ollama URL, or a LiteLLM proxy).
-   - `DISPATCH_API_KEY` — API key for that endpoint.
-5. Verify: `echo "Write hello world in Python." | path/to/dispatch.py --model <your-model> --spec -`
-6. For web-browsing mode (`dispatch_web.py`), register a tool-call-capable model in `CHAT_MODELS` and wire up your search provider in `_web_search()` — see the TODO comment there for Serper, Tavily, and SerpAPI options.
+Use Python 3.11 or newer. Follow [README.md](README.md) for installation and backend prerequisites. Keep this skill with the repository so its documentation links resolve; for a Claude skill installation, link the repository directory at `~/.claude/skills/dispatch`.
 
-## Model Matching (quality first, cost second)
+Run examples from the repository root using its `.venv/bin/python`. Copy `config.example.toml` to `~/.config/dispatch-agent/config.toml` and define aliases under `[models.<alias>]`, with provider defaults under `[providers.<backend>]`. Alternatively, supply `--backend` and a provider model ID in `--model`. Use `--model-id` to override an alias's provider model. CLI options override config; no source edits are needed.
 
-Match the task to the model — the goal is great output, never the cheapest-by-default. Fill in your own model IDs using this framework as a guide.
+Supported backends are `codex`, `cursor`, `ollama`, `ollama-cloud`, `openrouter`, and `openai-compatible`. Configure HTTP roots with `--base-url` and credential variable **names** with `--api-key-env`. Keep credential values in the environment, out of specs and config. Ollama Cloud defaults to `OLLAMA_API_KEY`; OpenRouter defaults to `OPENROUTER_API_KEY`. Local Ollama at `http://127.0.0.1:11434` needs no key. The generic HTTP backend needs a base URL and defaults to `OPENAI_API_KEY`.
 
-| Task type | Tier | Note |
-|---|---|---|
-| Agentic / terminal coding, multi-step CLI/tool work | Capable agentic coding model | If included in a flat-rate subscription you already pay, prefer it here to conserve your metered premium budget |
-| Hardest frontier reasoning, judgment, taste | Primary agent — Lane 1 | Never offload |
-| Bulk / high-volume coding | Cheap coding-specialized model | When quality variance is acceptable and volume is high |
-| Non-code bulk: drafts, classification, pre-screening | Cheap general-purpose model | Lowest tier; highest quality variance |
-| Deliverable prose that ships to a reader | Primary agent — never offloaded | If a human sees the text, the primary agent authors it, regardless of cost |
-| Heavy OSS reasoning model | Only when benchmarks show a genuine win | Not the default — benchmarks change fast, verify regularly |
+## Model selection and spec discipline
 
-**Core principle:** match task complexity and output stakes to model quality; reserve the cheap pool for tasks where quality variation is tolerable.
+Match task complexity, tool requirements, and output stakes to model quality. Use cost and capacity as constraints. Choose a model available to the user's account, and require reliable tool calling for HTTP file or web tasks. Do not silently switch models after a failure.
 
-## Spec Discipline
+Write a spec containing the goal, non-goals, input files, constraints, exact output contract, requested verification, and decisions to escalate. Include all context the worker needs. For reviews, require findings with locations and severity, explicit checks for each requested dimension, and a verdict.
 
-A dispatch is only as good as its spec. Before firing, write a self-contained spec:
+Declare permissions in a bare section in the spec:
 
-- Task goal + non-goals
-- Relevant file paths / inputs / constraints
-- The exact output contract (format, length, what constitutes success)
-- Whether code output is expected
-- Any verification requested
-- Escalation notes for taste / policy / client-facing / irreversible decisions
-
-Do not dispatch vague intent — if the model would need hidden context, put it in the spec.
-
-## Running the Tool
-
-One invocation = one dispatch. A minimal dispatch script interface:
-
-```bash
-path/to/dispatch.py --model <model-id> --spec <path-or-"-"> [--cwd <dir>] [--timeout <s>]
+```markdown
+## Grants
+paths-write: out/**
+network: no
+github-writes: no
+tools: file editing and Python unittest
 ```
 
-```bash
-# spec from a file, run in a repo
-path/to/dispatch.py --model <coding-model> --spec task.md --cwd /path/to/repo
+Resolve relative write globs from `--cwd`; separate multiple globs with commas. For text-only work, use `paths-write: none` and `tools: none`. Start fields at the beginning of their lines and use bare `yes` or `no` for network and GitHub writes.
 
-# spec from stdin
-printf '%s\n' "$SPEC" | path/to/dispatch.py --model <bulk-model> --spec -
+`dispatch.py` checks grants for contradictions and logs the decision. `--write` needs a nonempty write scope overlapping `--cwd`; `network: no` rejects `--network` and `--web`. Missing grants produce a warning and the call proceeds. Treat grants as advisory validation, not filesystem or network enforcement. Direct `dispatch_web.py` calls do not run these grants checks; scope file tools with `--write-dir` and enforce other limits outside the tool.
+
+## Plan and run
+
+Inspect a dry-run before launching. For the README's file-editing task:
+
+```sh
+.venv/bin/python dispatch.py --backend codex --model YOUR_CODEX_MODEL --spec task.md --cwd "$PWD" --write --dry-run
 ```
 
-The tool should print the model's result to stdout and exit non-zero on failure (no silent fallback to another model).
+Or use a configured alias and stdin for a text task:
 
-## Web-Browsing Mode (Agentic Web Research)
+```sh
+.venv/bin/python dispatch.py --model compatible --spec - --dry-run < compatible-task.md
+```
 
-A stateless `dispatch.py` has NO web access — it sends one chat-completion with no tools, so the model answers from training memory. It cannot look anything up, confirm a link resolves, or return current facts.
+`--dry-run` prints JSON without launching a worker or contacting a provider. Preflight checks local executable availability and required key-variable presence. It reports only endpoint origins and prompt byte count/hash, not credential values or prompt contents. It does not verify login, model access, endpoint reachability, or task completion. Add `--no-preflight` to inspect a plan before installing a backend or setting credentials. `dispatch_web.py` has no dry-run flag.
 
-For research that needs current, verified web facts (live product/store URLs, prices, "what exists today," anything you must not hallucinate), use a web-enabled dispatch mode instead. This runs a bounded agent loop that gives the model hosted `web_search` / `web_fetch` tools — it actually browses: searches, fetches candidate pages to confirm they resolve, and only cites verified URLs.
+For an authorized live run, satisfy the backend prerequisites, check the plan, then remove `--dry-run`. `dispatch.py` prints launch metadata followed by raw model output on stdout, and exits nonzero on failure. Do not treat all stdout as generated source; use the README's extraction example when saving code. Timeouts are per attempt or HTTP call; retries and tool loops can take longer in total.
 
-When to use web mode:
-- The answer depends on the live web (current listings, real URLs, prices, recent events).
-- You need link verification — the model fetches each URL and drops the 404s.
-- Stateless mode would force you to write "verify the links yourself" in the spec — that's the tell you want web mode.
+## Editing and isolation
 
-The web-browsing dispatch requires a model that emits tool calls (function-calling). Verify per-model before relying on it — not all OSS models emit tool calls reliably.
+Use `--write --cwd <directory>` for Codex, Cursor, Ollama, Ollama Cloud, or OpenRouter. The generic OpenAI-compatible backend is text-only and rejects `--write`.
 
-The model's final answer should print to stdout; the tool-call trace to stderr (one line per search/fetch with a result summary) so you can verify it actually browsed.
+- Codex and Cursor use their own CLI sandbox settings and retain the user's HOME for settings and authentication. Check those CLIs' effective permissions before sensitive work.
+- Ollama and OpenRouter hand editing to the `dispatch_web.py` file-tool loop, rooted at `--cwd`. This root can be broader than the spec's write globs. Narrow the working directory where practical and inspect the resulting diff.
+- Install `.[web]` for the Ollama SDK loop. OpenRouter's file loop uses the standard library. Use `--max-iters` to bound either HTTP write loop.
+- File tools enforce allowed directory roots and reject symlink traversal. Shell execution is off by default. `--unsafe-shell` or `[general].allow_shell_tool = true` enables an unconfined shell; a write root only sets its working directory. Use a container or VM for untrusted shell work.
 
-## Concurrency
+Use `--pass-env NAME` only for additional variables a child needs. Public HTTP children otherwise receive an allowlist and an isolated temporary HOME. See the README for backend-specific limitations.
 
-Fire as many dispatches as the work genuinely needs. Each call should be independent — one subprocess or one HTTP request per dispatch. There is no shared queue, daemon, lock, or batch coordinator, so many callers can dispatch at once without clogging each other. Launch many independent commands from the caller; do not introduce a shared service.
+## Web research
 
-## Gating and Escalation
+For live facts, require tool evidence and fetched source URLs in the spec. Codex supports `dispatch.py --web`; `--network` separately enables Codex execution-sandbox networking and requires `--write`. Use `network: yes` for a task that authorizes those flags.
 
-- The dispatch tool returns **raw** model output — it does not gate. **Code is gated where it lands:** when a teammate integrates a dispatched code result, your CI/code-review gate runs. Do not trust un-landed dispatched code blindly — review or test before integrating.
-- Do not silently accept a result that fails downstream tests; surface it.
-- Surface taste, brand, client-facing, policy, or irreversible decisions to the project owner before they ship.
+For Ollama's hosted search and fetch tools, install `.[web]`, supply a suitable API key, and use a tool-capable model:
 
-## Common Rationalizations
+```sh
+.venv/bin/python dispatch_web.py --backend ollama-cloud --model YOUR_CLOUD_MODEL --spec research-task.md --max-iters 15 --timeout 300
+```
 
-| Excuse | Rebuttal |
-|---|---|
-| "The model will figure out the missing context" | Dispatch is stateless — hidden context produces wrong output. If the model would need it, it goes in the spec. |
-| "The result looks fine, integrate it" | The tool returns raw, ungated output. Review or test before it lands — gating happens where code lands, not in the tool. |
-| "It's basically a draft — send the client-facing copy to the cheap pool" | Deliverable prose that ships to a reader is the primary agent's own work, never offloaded to a bulk model. |
-| "Cheapest model first, to save credits" | Quality first, cost second — match the task to the right model tier. |
-| "It failed a downstream test but it's mostly right" | Never silently accept a failing result. Surface it. |
+This is a live command. Review the task and prerequisites first. The loop prints its final answer to stdout and tool traces to stderr; keep traces enabled to verify searches and fetches. `--no-trace` suppresses them. Reaching the iteration cap without a final answer fails. A successful response does not guarantee that the model searched or verified every citation; inspect the trace and returned evidence.
 
-## Verification
+OpenRouter's public tool loop provides file tools with `--write-dir`; it does not provide hosted web search/fetch. Plain HTTP completions through `dispatch.py` have no browsing tools.
 
-Before reporting a dispatch complete:
-- [ ] Spec was self-contained (goal, constraints, output contract) — point to the spec file or paste it
-- [ ] Result reviewed or tested before integrating — name the check that was run
-- [ ] Taste / brand / client-facing / irreversible calls escalated to the project owner before anything shipped
+## Concurrency, retries, and verification
+
+Run independent tasks in separate working directories. There is no shared queue or daemon; optional cooldown markers and audit logs are local shared state. A transport retry stays on the selected model. Inspect files after a failed or partial run before relaunching, and keep retries within the original authorization.
+
+Before reporting completion:
+
+- Point to the self-contained spec and selected backend/model.
+- Review the actual files or text against the output contract, including required counts and sections.
+- Run the requested tests and name their outcomes. Do not treat exit zero or a plausible answer as proof of completion.
+- Escalate scope conflicts, unverifiable claims, and decisions requiring owner judgment before publishing or taking irreversible action.

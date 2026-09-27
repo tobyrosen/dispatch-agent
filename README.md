@@ -1,6 +1,6 @@
 # Dispatch Agent
 
-Dispatch one self-contained task to Codex, Cursor, Ollama, OpenRouter, or an OpenAI-compatible HTTP endpoint. `dispatch.py` prints the result; supported write lanes can also edit files. Check the files and tests afterward: a successful model response does not prove the task is complete.
+Dispatch one self-contained task to Codex, Cursor, Ollama, OpenRouter, or an OpenAI-compatible HTTP endpoint. `dispatch.py` prints launch metadata followed by the result; supported write lanes can also edit files. Check the files and tests afterward: a successful model response does not prove the task is complete.
 
 ## Step 0: install and prepare a task
 
@@ -115,7 +115,7 @@ The default endpoint is `http://127.0.0.1:11434`; no API key is needed there. Fo
 
 ### Ollama Cloud
 
-Create an Ollama API key, set the default `OLLAMA_API_KEY` environment variable, and choose a cloud model your account can use. The example ID below is published by Ollama.
+Create an Ollama API key, set the default `OLLAMA_API_KEY` environment variable, and choose a cloud model your account can use. Treat the model ID below as an example and confirm access before a live run.
 
 ```sh
 export OLLAMA_API_KEY='paste-your-key-here'
@@ -128,7 +128,7 @@ If your key is in another variable, add `--api-key-env YOUR_VARIABLE` to both co
 
 ### OpenRouter
 
-Create an OpenRouter API key. The model below is listed by OpenRouter with tool calling; select another current tool-capable slug if it is unavailable to your account. Dispatch requests zero data retention, denies provider data collection, and disables fallback routing.
+Create an OpenRouter API key. Treat the model below as an example; select a tool-capable slug available to your account before a live run. Dispatch requests zero data retention, denies provider data collection, and disables fallback routing.
 
 ```sh
 export OPENROUTER_API_KEY='paste-your-key-here'
@@ -141,7 +141,7 @@ For a `:free` slug, Dispatch also refuses a response that reports nonzero cost. 
 
 ### OpenAI-compatible HTTP
 
-This backend is **text-only** and rejects `--write`. It can generate a file for you to save under your own control. Set a real HTTPS `/v1` root, a model ID from that provider, and the environment variable holding its API key. This example asks for one Python file and redirects the returned text; review it before running it. If your server is local, a loopback HTTP URL is also allowed.
+This backend is **text-only** and rejects `--write`. It can generate a file for you to save under your own control. Set a real HTTPS `/v1` root, a model ID from that provider, and the environment variable holding its API key. This example asks for one Python file, saves stdout, and removes the launch-metadata line; review the extracted source before running it. If your server is local, a loopback HTTP URL is also allowed.
 
 ```sh
 export MY_API_KEY='paste-your-key-here'
@@ -157,7 +157,15 @@ github-writes: no
 tools: none
 EOF
 .venv/bin/python dispatch.py --backend openai-compatible --model YOUR_MODEL --base-url https://YOUR_HOST/v1 --api-key-env MY_API_KEY --spec compatible-task.md --dry-run
-.venv/bin/python dispatch.py --backend openai-compatible --model YOUR_MODEL --base-url https://YOUR_HOST/v1 --api-key-env MY_API_KEY --spec compatible-task.md > out/slugify.py
+.venv/bin/python dispatch.py --backend openai-compatible --model YOUR_MODEL --base-url https://YOUR_HOST/v1 --api-key-env MY_API_KEY --spec compatible-task.md > out/response.txt
+.venv/bin/python - <<'PYCODE'
+from pathlib import Path
+
+header, separator, source = Path("out/response.txt").read_text().partition("\n")
+if not header.startswith("dispatch.py launch: ") or not separator or not source.strip():
+    raise SystemExit("Unexpected dispatch output; inspect out/response.txt")
+Path("out/slugify.py").write_text(source)
+PYCODE
 .venv/bin/python -m py_compile out/slugify.py
 ```
 
@@ -181,14 +189,14 @@ Copy `config.example.toml` as shown in Step 0. Define aliases under `[models.<al
 | `--timeout`, `--idle-timeout` | Per-call timeout and Cursor idle timeout, in seconds. |
 | `--max-iters` | Ollama/OpenRouter write-loop iteration limit. |
 | `--effort` | Backend reasoning-effort override where supported. |
-| `--fast`, `--directive` | Fast mode for Codex/Cursor requires `--directive` audit text. `--directive` alone is optional except for configured directed models. |
+| `--fast`, `--directive` | Fast mode for Codex/Cursor. `--directive` records optional audit text; the public configuration does not require it. |
 | `--web`, `--network` | Codex search and Codex execution-sandbox network access; `--network` requires `--write`. |
 | `--images` | JPEG, PNG, or WebP input for a configured vision-capable Ollama model; install Pillow first with `.venv/bin/python -m pip install Pillow`. |
 | `--ignore-cooldown` | Bypass an active local cooldown marker. |
 
-`--no-fast` is a compatibility no-op. `--reasoning` applies only to configured backends that use it. `dispatch_web.py` also accepts `--write-dir` (repeatable), `--no-trace`, and the model, backend, endpoint, key-variable, timeout, and iteration options; the shell flag applies to its file-tool loop.
+`--no-fast` is a compatibility no-op. `--reasoning`, `--task-class`, and `--ignore-lane-state` are compatibility options for extension hooks; they do not add behavior to the public backends. `dispatch_web.py` also accepts `--write-dir` (repeatable), `--no-trace`, and the model, backend, endpoint, key-variable, timeout, and iteration options; the shell flag applies to its file-tool loop.
 
-A `## Grants` block declares `paths-write`, `network`, `github-writes`, and `tools`. Dispatch checks contradictions at launch and logs the decision. Grants are advisory, not filesystem or network enforcement.
+A `## Grants` block declares `paths-write`, `network`, `github-writes`, and `tools`. `dispatch.py` checks contradictions at launch and logs the decision. Grants are advisory, not filesystem or network enforcement. Direct `dispatch_web.py` calls do not perform these checks and have no `--dry-run` option. Its OpenRouter loop requires a file-tool root and has no hosted web search/fetch; the Ollama loop provides those hosted tools, which need API authentication even when the model runs locally.
 
 ## What is and isn't sandboxed
 
@@ -196,7 +204,7 @@ Codex and Cursor use their own sandbox options. Their actual isolation depends o
 
 If Codex reports `sandbox_apply: Operation not permitted`, rerun it from a writable environment without a nested sandbox.
 
-Public HTTP child processes receive a small environment allowlist and an isolated, temporary `HOME` by default. Use `--pass-env NAME` only for variables the child needs. Ollama and OpenRouter file tools restrict their file operations to declared `--write-dir` roots and reject symlink traversal. The `## Grants` block is advisory validation, not an operating-system sandbox.
+Public HTTP child processes receive a small environment allowlist and an isolated, temporary `HOME` by default. Use `--pass-env NAME` only for variables the child needs. Ollama and OpenRouter file tools restrict their file operations to declared `--write-dir` roots and reject symlink traversal. The `dispatch.py --write` handoff uses all of `--cwd` as that root; narrower spec globs remain advisory. The `## Grants` block is advisory validation, not an operating-system sandbox.
 
 `run_command` is off by default. If you enable it with `--unsafe-shell` or `[general].allow_shell_tool = true`, it runs an **unconfined shell**. `--write-dir` only sets its working directory; the shell can access other files and networks allowed to your account. Run untrusted tasks inside a container or VM.
 
