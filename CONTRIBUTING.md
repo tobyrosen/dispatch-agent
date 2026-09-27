@@ -42,3 +42,9 @@ This repo uses release-please Release PRs.
 Do not create release tags manually. Do not publish release artifacts manually unless the maintainer explicitly approves an exception.
 
 Merging a Release PR is the owner approval to create the GitHub Release. Release PRs must not be auto-merged.
+
+## Local extensions
+
+The standalone modules need no extension. A trusted Python file matching `*_private.py` beside the resolved script can define `install_dispatch(namespace)` or `install_web(namespace)`. The loader uses that directory, including when invoked through a symlink; it does not search the working directory or `PYTHONPATH` for extensions. Import errors fail visibly.
+
+An installer can register local model resolution, validation, launch and audit callbacks, a usage observer, or web tools in `EXTENSION_TOOLS`. Tool entries provide `definition`, `execute`, `prompt`, `disabled_error`, `preview`, and `summary`. Keep installation modules out of public distributions. Extensions execute with the caller's permissions, so install only trusted source files.

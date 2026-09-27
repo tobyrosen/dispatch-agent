@@ -194,7 +194,7 @@ Copy `config.example.toml` as shown in Step 0. Define aliases under `[models.<al
 | `--images` | JPEG, PNG, or WebP input for a configured vision-capable Ollama model; install Pillow first with `.venv/bin/python -m pip install Pillow`. |
 | `--ignore-cooldown` | Bypass an active local cooldown marker. |
 
-`--no-fast` is a compatibility no-op. `--reasoning`, `--task-class`, and `--ignore-lane-state` are compatibility options for extension hooks; they do not add behavior to the public backends. `dispatch_web.py` also accepts `--write-dir` (repeatable), `--no-trace`, and the model, backend, endpoint, key-variable, timeout, and iteration options; the shell flag applies to its file-tool loop.
+`--no-fast` is a compatibility no-op. `--reasoning`, `--task-class`, and `--ignore-lane-state` are compatibility options for local extensions; the standalone backends ignore them. The public cooldown setting uses `--ignore-cooldown`. `dispatch_web.py` also accepts `--write-dir` (repeatable), `--no-trace`, and the model, backend, endpoint, key-variable, timeout, and iteration options; the shell flag applies to its file-tool loop.
 
 A `## Grants` block declares `paths-write`, `network`, `github-writes`, and `tools`. `dispatch.py` checks contradictions at launch and logs the decision. Grants are advisory, not filesystem or network enforcement. Direct `dispatch_web.py` calls do not perform these checks and have no `--dry-run` option. Its OpenRouter loop requires a file-tool root and has no hosted web search/fetch; the Ollama loop provides those hosted tools, which need API authentication even when the model runs locally.
 

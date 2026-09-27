@@ -17,6 +17,7 @@ Claude agent teams can keep high-judgment work on the primary Claude lane while 
   - `SKILL.md`: Claude-facing skill instructions covering model matching, spec discipline, concurrency, gating, and escalation.
   - `pyproject.toml`: local package metadata, console script entry points, and release-please version target.
   - `tests/`: pytest regressions for public configuration, grants, dry-run preflight, HTTP and CLI failures, tool behavior, and security defaults.
+- Optional local extension entry points are documented in `CONTRIBUTING.md`; no extension module ships in this repository.
 - Runtime/deployment shape: local Python 3.11+ command-line scripts. The core uses the standard library; the optional web/tool loop installs the `ollama` package. No daemon, queue, shared lock, package registry publish, or hosted service is part of v0.1.0.
 
 ## Develop, Run, Test
