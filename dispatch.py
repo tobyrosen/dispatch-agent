@@ -68,6 +68,27 @@ GRANTS_FORMAT = (
     "## Grants\npaths-write: <glob list or none>\nnetwork: <yes|no>\n"
     "github-writes: <yes|no>\ntools: <free-text list>"
 )
+# Worker skills (VP orchestrator spec, Change 1, 2026-09-30). A spec may carry a
+# `## Skills` section beside `## Grants`; each named ~/.claude/skills/<name>/SKILL.md
+# body is appended to the prompt under `## Loaded skills`. Printed beside
+# GRANTS_FORMAT because an installation module may replace that constant.
+SKILLS_FORMAT = "## Skills\nload: <comma-separated skill names or none>"
+SKILLS_DIR_ENV = "DELEGATE_SKILLS_DIR"
+SKILLS_DIR_DEFAULT = Path.home() / ".claude" / "skills"
+# Byte cap on the appended `## Loaded skills` bundle, per lane. Over cap refuses
+# the launch with each skill's size; nothing is truncated. A lane not listed
+# here gets SKILLS_DEFAULT_BYTE_CAP; an installation module adds caps for the
+# lanes it defines.
+SKILLS_BYTE_CAPS = {
+    "codex": 120_000,
+    "cursor": 120_000,
+    "ollama": 60_000,
+    "openrouter": 60_000,
+}
+SKILLS_DEFAULT_BYTE_CAP = 60_000
+SKILLS_HEADING_RE = re.compile(r"^##[ \t]+Skills[ \t]*$", re.IGNORECASE)
+SKILLS_FIELDS = {"load"}
+SKILL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 CHANNEL_DOWN_EXIT = 3
 CHANNEL_DOWN_MESSAGE = "delegate.py: channel down, work halted"
 LANE_REFUSED_EXIT = 3
@@ -443,9 +464,12 @@ def channel_down_flag_path():
 
 
 def check_channel_down():
-    path = channel_down_flag_path()
-    if path is not None and os.path.exists(path):
-        raise ChannelDownError
+    """Keep current work running during a Telegram outage (Toby, 2026-10-01).
+
+    The owning session alerts CoS through A2A and holds every decision.
+    Retain this compatibility entry point without gating or killing workers.
+    """
+    return None
 
 
 def terminate_worker(proc):
@@ -684,6 +708,194 @@ def parse_grants(spec):
     return True, fields, None
 
 
+class SkillsError(DelegateError):
+    """A skills request cannot be satisfied; refused before any worker starts."""
+
+
+def parse_skills_section(spec):
+    """Return (declared, fields, error) for the first `## Skills` section.
+
+    Same rules as parse_grants: fence-aware, first section wins, a duplicate
+    field is an error, unknown fields are ignored.
+    """
+    lines = spec.splitlines()
+    start = None
+    fence = None
+    for index, line in enumerate(lines):
+        fence_match = MARKDOWN_FENCE_RE.match(line)
+        if fence_match:
+            marker = fence_match.group(1)[0]
+            fence = None if fence == marker else marker if fence is None else fence
+            continue
+        if fence is None and SKILLS_HEADING_RE.match(line):
+            start = index + 1
+            break
+    if start is None:
+        return False, {}, None
+
+    fields = {}
+    fence = None
+    for line in lines[start:]:
+        fence_match = MARKDOWN_FENCE_RE.match(line)
+        if fence_match:
+            marker = fence_match.group(1)[0]
+            fence = None if fence == marker else marker if fence is None else fence
+            continue
+        if fence is None and MARKDOWN_HEADING_RE.match(line):
+            break
+        match = GRANT_FIELD_RE.match(line)
+        if not match:
+            continue
+        key = match.group(1).lower()
+        if key not in SKILLS_FIELDS:
+            continue
+        if key in fields:
+            return True, fields, f"duplicate {key} entry in ## Skills"
+        fields[key] = match.group(2).strip()
+    return True, fields, None
+
+
+def parse_skill_names(raw, source):
+    """Parse `a, b` or `none` into a list of names; refuse anything else."""
+    if raw is None or not raw.strip():
+        raise SkillsError(f"skills entry is empty ({source}); use a comma-separated list or none")
+    if raw.strip().lower() == "none":
+        return []
+    names = [item.strip() for item in raw.split(",")]
+    if any(not name for name in names):
+        raise SkillsError(f"skills entry has an empty name ({source}): {raw!r}")
+    if any(name.lower() == "none" for name in names):
+        raise SkillsError(f'skills must be either "none" or a comma-separated list ({source})')
+    bad = [name for name in names if not SKILL_NAME_RE.fullmatch(name)]
+    if bad:
+        raise SkillsError(f"invalid skill name ({source}): {', '.join(bad)}")
+    seen = set()
+    duplicates = [name for name in names if name in seen or seen.add(name)]
+    if duplicates:
+        raise SkillsError(f"duplicate skill name ({source}): {', '.join(duplicates)}")
+    return names
+
+
+def requested_skills(spec, cli_value=None):
+    """Return (names, source). The --skills flag beats the spec's ## Skills section."""
+    if cli_value is not None:
+        return parse_skill_names(cli_value, "--skills"), "cli"
+    declared, fields, error = parse_skills_section(spec)
+    if error:
+        raise SkillsError(error)
+    if not declared:
+        return [], None
+    if "load" not in fields:
+        raise SkillsError("## Skills section has no load: entry")
+    return parse_skill_names(fields["load"], "## Skills"), "spec"
+
+
+def skills_dir():
+    override = os.environ.get(SKILLS_DIR_ENV)
+    return Path(os.path.expanduser(override)) if override else SKILLS_DIR_DEFAULT
+
+
+def strip_frontmatter(text):
+    """Drop a leading YAML frontmatter block (--- ... --- or ...)."""
+    text = text.lstrip("﻿")
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip() != "---":
+        return text
+    for index in range(1, len(lines)):
+        if lines[index].rstrip() in {"---", "..."}:
+            return "".join(lines[index + 1:])
+    raise SkillsError("unterminated YAML frontmatter")
+
+
+def resolve_skills(names, base=None):
+    """Return [(name, body)] in the order given; refuse every unknown name at once."""
+    base = Path(base) if base is not None else skills_dir()
+    missing = []
+    loaded = []
+    for name in names:
+        path = base / name / "SKILL.md"
+        if not SKILL_NAME_RE.fullmatch(name) or not path.is_file():
+            missing.append(f"{name} (no {path})")
+            continue
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise SkillsError(f"cannot read skill {name}: {path}: {exc}") from exc
+        try:
+            body = strip_frontmatter(raw).strip()
+        except SkillsError as exc:
+            raise SkillsError(f"skill {name}: {exc} in {path}") from exc
+        if not body:
+            raise SkillsError(f"skill {name} has an empty body: {path}")
+        loaded.append((name, body))
+    if missing:
+        raise SkillsError("unknown skill: " + "; ".join(missing))
+    return loaded
+
+
+def format_skills_bundle(loaded):
+    """Return the `## Loaded skills` section text, or "" for no skills."""
+    if not loaded:
+        return ""
+    parts = [f"### {name}\n\n{body}" for name, body in loaded]
+    return "## Loaded skills\n\n" + "\n\n".join(parts) + "\n"
+
+
+def skills_bundle(names, base=None):
+    """Resolve and format in one step; shared with skill-bundle.py."""
+    return format_skills_bundle(resolve_skills(names, base))
+
+
+def check_skills_cap(lane, loaded, bundle):
+    """Return the bundle's byte size, or refuse it with every skill's size."""
+    cap = SKILLS_BYTE_CAPS.get(lane, SKILLS_DEFAULT_BYTE_CAP)
+    size = len(bundle.encode("utf-8"))
+    if size > cap:
+        sizes = ", ".join(f"{name}={len(body.encode('utf-8'))}" for name, body in loaded)
+        raise SkillsError(
+            f"skills bundle {size} bytes exceeds the {lane} lane cap of {cap} bytes "
+            f"(skill sizes in bytes: {sizes}); name fewer or smaller skills"
+        )
+    return size
+
+
+def append_skills(spec, bundle):
+    """Append the bundle after the spec text; no bundle leaves the spec unchanged."""
+    if not bundle:
+        return spec
+    return spec.rstrip("\n") + "\n\n" + bundle
+
+
+def _prepare_skills_legacy(spec, args, lane):
+    """Resolve the requested skills and return (prompt, names, bytes)."""
+    names, _source = requested_skills(spec, getattr(args, "skills", None))
+    loaded = resolve_skills(names)
+    bundle = format_skills_bundle(loaded)
+    size = check_skills_cap(lane, loaded, bundle)
+    return append_skills(spec, bundle), [name for name, _body in loaded], size
+
+
+class SkillRouteError(SkillsError):
+    """An explicitly enforced route cannot authorize a launch (exit 2)."""
+
+
+def prepare_skills(spec, args, lane):
+    """Observe real launches; retain the exact legacy skill-loading function."""
+    if getattr(args, "dry_run", False) and not getattr(args, "dry_run_route", False):
+        return _prepare_skills_legacy(spec, args, lane)
+    try:
+        from skillroute.shadow_hook import prepare_skills as routed_prepare
+        from types import SimpleNamespace
+        return routed_prepare(SimpleNamespace(**globals()), spec, args, lane)
+    except SkillsError:
+        raise
+    except (Exception, SystemExit) as exc:
+        # Import/config/observer faults never prevent a legacy shadow launch.
+        print("delegate.py skill route: verdict=REVIEW note=observer failure "
+              + type(exc).__name__, file=sys.stderr)
+        return _prepare_skills_legacy(spec, args, lane)
+
+
 def _paths_write_globs(raw):
     if raw is None:
         return None, None
@@ -770,6 +982,12 @@ def log_grants_decision(spec_path, grants, args, plan, verdict, reason=None):
         "verdict": verdict,
         "task_class": getattr(args, "task_class", None),
     }
+    if event == "launch":
+        record["skills_loaded"] = list(getattr(args, "skills_loaded", None) or [])
+        record["skills_bytes"] = getattr(args, "skills_bytes", None) or 0
+        for key in ("route_id", "route_verdict", "skills_routed", "skills_override_reason"):
+            if hasattr(args, key):
+                record[key] = getattr(args, key)
     if getattr(args, "fast", False):
 
         record["fast"] = True
@@ -807,7 +1025,8 @@ def validate_grants(spec, spec_path, args, plan):
     if not declared:
         log_grants_decision(spec_path, None, args, plan, "allow-no-grants")
         print(
-            f"{SCRIPT_NAME}: no grants declared ({spec_path}); accepted format:\n{GRANTS_FORMAT}",
+            f"{SCRIPT_NAME}: no grants declared ({spec_path}); accepted format:\n{GRANTS_FORMAT}\n"
+            f"optional, beside it:\n{SKILLS_FORMAT}",
             file=sys.stderr,
         )
         return
@@ -1012,6 +1231,15 @@ def run_codex(
         if not os.path.lexists(auth_target):
             try:
                 os.symlink(auth_source, auth_target)
+            except FileExistsError:
+                # Two children launched in one shell command (`a & b & wait`)
+                # race here; the loser is fine when the winner's link already
+                # points at the same credential (BOSS, 2026-10-06, director proof).
+                if os.readlink(auth_target) != auth_source:
+                    raise DelegateError(
+                        f"nested Codex auth link unavailable: {auth_target}: "
+                        "exists with a different target"
+                    )
             except OSError as e:
                 raise DelegateError(
                     f"nested Codex auth link unavailable: {auth_target}: {e}"
@@ -1021,7 +1249,10 @@ def run_codex(
     # message. Remove configured notification credentials from this child.
     for _leak in WORKER_ENV_REMOVE:
         env.pop(_leak, None)
-    argv = ["codex", "exec", "--model", codex_id, "--skip-git-repo-check", "--", spec]
+    # Toby 2026-10-08: ChatGPT connector grants (HubSpot, Gmail, GitHub...) are
+    # mounted into every Codex launch by the "apps" feature; the fleet must never see them.
+    # Verified: eval-outputs/personal-bot-2026-10-08/REPORT-PROBE.md.
+    argv = ["codex", "exec", "--disable", "apps", "--model", codex_id, "--skip-git-repo-check", "--", spec]
     if fast:
 
 
@@ -1548,6 +1779,20 @@ def parse_args(argv):
         help="compatibility option for local extensions; unused by standalone backends",
     )
     ap.add_argument(
+        "--skills",
+        default=None,
+        metavar="A,B",
+        help="comma-separated skill names appended to the prompt from "
+        "~/.claude/skills/<name>/SKILL.md, or none; overrides the spec's ## Skills section",
+    )
+    ap.add_argument("--skills-override-reason", metavar="TEXT",
+                    help="audit why named skills replace routing (required in enforce)")
+    ap.add_argument("--skill-route-mode", choices=["shadow", "assist", "enforce"],
+                    help="tighten shadow to assist/enforce; configured binding cannot be relaxed")
+    ap.add_argument("--request", type=Path, help="original request file for routing")
+    ap.add_argument("--dry-run-route", action="store_true",
+                    help="explicitly include a local route receipt in --dry-run")
+    ap.add_argument(
         "--grants-check-only",
         action="store_true",
         help=argparse.SUPPRESS,
@@ -1691,7 +1936,11 @@ def main(argv=None):
     spec = read_spec(args.spec)
     if not spec.strip():
         raise DelegateError("empty spec")
+    # Skills resolve before the launch record and before any worker starts:
+    # an unknown name or an oversize bundle refuses the launch here.
+    prompt, args.skills_loaded, args.skills_bytes = prepare_skills(spec, args, lane)
     validate_grants(spec, args.spec, args, plan)
+    spec = prompt
     prepared_images = prepare_ollama_images(args.images)
 
     if args.dry_run:
@@ -1709,6 +1958,15 @@ def main(argv=None):
                 "task_class": args.task_class,
             }
         )
+        if args.skills_loaded:
+            # Only when skills load, so a skill-free plan keeps its existing shape.
+            dry_plan["prompt"]["skills_loaded"] = args.skills_loaded
+            dry_plan["prompt"]["skills_bytes"] = args.skills_bytes
+        if args.dry_run_route:
+            dry_plan["skill_route"] = getattr(args, "skill_route", None)
+            for key in ("route_id", "route_verdict", "skills_routed", "skills_override_reason"):
+                if hasattr(args, key):
+                    dry_plan[key] = getattr(args, key)
         update_dry_plan(args, plan, launch_state, dry_plan)
         if args.fast:
             dry_plan["fast"] = True
@@ -1755,6 +2013,11 @@ def main(argv=None):
         f"cursor_pool={json.dumps(plan.get('cursor_pool'))}"
     )
     print_launch_status(args, plan, launch_state)
+    print(
+        f"{SCRIPT_NAME} skills: "
+        f"skills_loaded={json.dumps(getattr(args, '_skills_status_loaded', args.skills_loaded))} "
+        f"skills_bytes={getattr(args, '_skills_status_bytes', args.skills_bytes)}"
+    )
     sys.stdout.flush()
 
     try:
@@ -1872,7 +2135,7 @@ if __name__ == "__main__":
         print(f"{SCRIPT_NAME}: {e}", file=sys.stderr)
         print(e.fall_through_line, file=sys.stderr)
         sys.exit(1)
-    except GrantsError as e:
+    except (GrantsError, SkillRouteError) as e:
         print(f"{SCRIPT_NAME}: {e}", file=sys.stderr)
         sys.exit(2)
     except DelegateError as e:
